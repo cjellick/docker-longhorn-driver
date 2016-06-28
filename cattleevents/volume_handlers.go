@@ -19,32 +19,11 @@ type volumeHandlers struct {
 	daemon *driver.StorageDaemon
 }
 
-func (h *volumeHandlers) RevertToSnapshot(event *revents.Event, cli *client.RancherClient) error {
+func (h *volumeHandlers) RevertOrRestore(event *revents.Event, cli *client.RancherClient) error {
 	logrus.Infof("Received event: Name: %s, Event Id: %s, Resource Id: %s", event.Name, event.ID, event.ResourceID)
 
 	snapshot := &eventSnapshot{}
 	err := decodeEvent(event, "snapshot", snapshot)
-	if err != nil {
-		return err
-	}
-
-	volClient := newVolumeClient(snapshot)
-
-	logrus.Infof("Reverting to snapshot %v", snapshot.UUID)
-
-	_, err = volClient.revertToSnapshot(snapshot.UUID)
-	if err != nil {
-		return err
-	}
-
-	return reply("volume", event, cli)
-}
-
-func (h *volumeHandlers) RestoreFromBackup(event *revents.Event, cli *client.RancherClient) error {
-	logrus.Infof("Received event: Name: %s, Event Id: %s, Resource Id: %s", event.Name, event.ID, event.ResourceID)
-
-	backup := &eventBackup{}
-	err := decodeEvent(event, "backup", backup)
 	if err != nil {
 		return err
 	}
@@ -54,17 +33,35 @@ func (h *volumeHandlers) RestoreFromBackup(event *revents.Event, cli *client.Ran
 		return err
 	}
 
+	if pd.Action == "revert" {
+		logrus.Infof("Reverting to snapshot %v", snapshot.UUID)
+
+		volClient := newVolumeClient(snapshot)
+
+		_, err = volClient.revertToSnapshot(snapshot.UUID)
+		if err != nil {
+			return err
+		}
+		return reply("volume", event, cli)
+	} else if pd.Action == "restore" {
+		return h.restoreFromBackup(snapshot, pd, event, cli)
+	} else {
+		return fmt.Errorf("Unknown action: %v. Event: %#v", pd.Action, event)
+	}
+}
+
+func (h *volumeHandlers) restoreFromBackup(snapshot *eventSnapshot, pd *processData, event *revents.Event, cli *client.RancherClient) error {
 	volClient := newVolumeClientFromName(pd.VolumeName)
 
-	logrus.Infof("Restoring from backup %v", backup.UUID)
+	logrus.Infof("Restoring from backup %v of snapshot %v.", snapshot.BackupURI, snapshot.UUID)
 
-	target := newBackupTarget(backup)
-	status, err := volClient.restoreFromBackup(pd.ProcessID, backup.URI, target)
+	target := newBackupTarget(snapshot)
+	status, err := volClient.restoreFromBackup(pd.ProcessID, snapshot.BackupURI, target)
 	if err != nil {
 		return err
 	}
 
-	err = util.Backoff(time.Hour*12, fmt.Sprintf("Failed waiting for restore to backup: %v %v", backup.UUID, backup.URI),
+	err = util.Backoff(time.Hour*12, fmt.Sprintf("Failed waiting for restore to backup: %v %v", snapshot.UUID, snapshot.BackupURI),
 		func() (bool, error) {
 			s, err := volClient.reloadStatus(status)
 			if err != nil {

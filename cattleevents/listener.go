@@ -25,12 +25,13 @@ func ConnectToEventStream(conf Config) error {
 
 	eventHandlers := map[string]revents.EventHandler{
 		"storage.snapshot.create":          snapshot.Create,
-		"storage.snapshot.remove":          snapshot.Delete,
-		"storage.backup.create":            backup.Create,
-		"storage.backup.remove":            backup.Delete,
+		"storage.snapshot.removelocal":     snapshot.Delete,
+		"storage.snapshot.remove":          snapshot.DeleteLocalAndBackup,
+		"storage.snapshot.backup":          backup.Create,
+		"storage.snapshot.removebackup":    backup.Delete,
 		"storage.volume.remove":            volume.VolumeRemove,
-		"storage.volume.reverttosnapshot":  volume.RevertToSnapshot,
-		"storage.volume.restorefrombackup": volume.RestoreFromBackup,
+		"storage.volume.reverttosnapshot":  volume.RevertOrRestore,
+		"storage.volume.restorefrombackup": volume.RevertOrRestore,
 		"storage.volume.activate":          nh.Handler,
 		"storage.volume.deactivate":        nh.Handler,
 		"ping": ph.Handler,
@@ -95,12 +96,12 @@ func decodeEvent(event *revents.Event, key string, target interface{}) error {
 type processData struct {
 	ProcessID  string `mapstructure:"processId"`
 	VolumeName string
+	Action     string
 }
 
-type eventBackup struct {
+type eventSnapshot struct {
 	UUID         string
-	URI          string
-	Snapshot     eventSnapshot
+	BackupURI    string
 	BackupTarget struct {
 		Name string
 		UUID string
@@ -110,13 +111,11 @@ type eventBackup struct {
 			}
 		}
 	}
-}
-
-type eventSnapshot struct {
-	UUID   string
 	Volume struct {
-		Name string
-		UUID string
+		Name    string
+		UUID    string
+		State   string
+		Removed float64
 	}
 }
 

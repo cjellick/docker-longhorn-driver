@@ -57,26 +57,10 @@ func (c *volumeClient) revertToSnapshot(name string) (*volume, error) {
 	return &resp, err
 }
 
-func (c *volumeClient) removeBackup(snapshotUUID, uuid, location string, target backupTarget) (*status, error) {
-	request := &locationInput{
-		UUID:         uuid,
-		Location:     location,
-		BackupTarget: target,
-	}
-	if err := c.post(fmt.Sprintf("/snapshots/%v?action=removebackup", snapshotUUID), request, nil); err != nil {
-		if apiErr, ok := err.(apiError); ok && apiErr.statusCode == http.StatusNotFound {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return nil, nil
-}
-
-func (c *volumeClient) createBackup(snapshotUUID, uuid string, target backupTarget) (*status, error) {
+func (c *volumeClient) createBackup(processID, snapshotUUID string, target backupTarget) (*status, error) {
 	var resp status
 	request := &backupInput{
-		UUID:         uuid,
+		UUID:         processID,
 		BackupTarget: target,
 	}
 	err := c.post(fmt.Sprintf("/snapshots/%v?action=backup", snapshotUUID), request, &resp)

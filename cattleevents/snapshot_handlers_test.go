@@ -18,37 +18,38 @@ var snapshotEvent = `{"name":"asdf",
 
 var backupEvent = `
 {
-  "id": "ed59097c-e470-48fc-b45c-32ec7fed3c07",
-  "name": "storage.backup.create",
-  "replyTo": "reply.2806044353996486871",
-  "resourceId": "1b1",
-  "resourceType": "backup",
+  "id": "83255ac2-abab-4098-a62a-8e87bc2bb3d7",
+  "name": "storage.snapshot.backup",
+  "replyTo": "reply.416791149553575714",
+  "resourceId": "1s2",
+  "resourceType": "snapshot",
+  "publisher": null,
+  "transitioning": null,
+  "transitioningMessage": null,
+  "transitioningInternalMessage": null,
+  "previousIds": null,
+  "previousNames": null,
   "data": {
-    "backup": {
-      "id": 1,
-      "state": "creating",
-      "created": 1465276634000,
-      "uuid": "424c996d-2050-4ea2-85cf-0351989e91ec",
+    "snapshot": {
+      "name": "aaaa",
+      "id": 2,
+      "state": "backingup",
+      "kind": "snapshot",
       "accountId": 5,
-      "snapshotId": 1,
-      "kind": "backup",
-      "volumeId": 32,
+      "data": {},
+      "uuid": "4dceeb1f-9623-4be0-b1ff-6422de7ffc82",
+      "volumeId": 34,
       "backupTargetId": 1,
-      "type": "backup",
-      "snapshot": {
-        "id": 1,
-        "uuid": "f690052a-956d-41f4-ba61-d7a1a88de652",
-        "kind": "snapshot",
-        "type": "snapshot"
+      "type": "snapshot",
+      "volume": {
+        "name": "foo1",
+        "id": 34
       },
       "backupTarget": {
         "name": "name",
         "id": 1,
         "state": "created",
         "created": 1465276622000,
-        "removed": null,
-        "removeTime": null,
-        "description": "",
         "uuid": "auuid",
         "accountId": 5,
         "kind": "backupTarget",
@@ -84,8 +85,8 @@ func TestSnapshotEvent(t *testing.T) {
 func TestBackupEvent(t *testing.T) {
 	event := createEvent(backupEvent, t)
 
-	backupData := &eventBackup{}
-	err := decodeEvent(event, "backup", backupData)
+	backupData := &eventSnapshot{}
+	err := decodeEvent(event, "snapshot", backupData)
 	if err != nil {
 		t.Fatal(err)
 	}

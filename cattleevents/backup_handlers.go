@@ -2,32 +2,50 @@ package cattleevents
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
+	"github.com/rancher/convoy/objectstore"
 	"github.com/rancher/docker-longhorn-driver/util"
 	revents "github.com/rancher/go-machine-service/events"
 	"github.com/rancher/go-rancher/client"
-	"strings"
-	"time"
 )
+
+type notExistError error
+
+var backupDoesntExist notExistError
+
+var doesntExistRegex = regexp.MustCompile("cannot find.*in objectstore")
 
 type backupHandlers struct {
 }
 
 func (h *backupHandlers) Create(event *revents.Event, cli *client.RancherClient) error {
 	logrus.Infof("Received event: Name: %s, Event Id: %s, Resource Id: %s", event.Name, event.ID, event.ResourceID)
-	backup, err := h.decodeEventBackup(event)
+
+	snapshot := &eventSnapshot{}
+	err := decodeEvent(event, "snapshot", snapshot)
 	if err != nil {
 		return err
 	}
 
-	volClient := newVolumeClient(&backup.Snapshot)
+	pd := &processData{}
+	if err = decodeEvent(event, "processData", pd); err != nil {
+		return err
+	}
 
-	logrus.Infof("Creating backup %v", backup.UUID)
+	volClient := newVolumeClient(snapshot)
 
-	target := newBackupTarget(backup)
-	status, err := volClient.createBackup(backup.Snapshot.UUID, backup.UUID, target)
+	logrus.Infof("Creating backup of snapshot %v", snapshot.UUID)
+
+	target := newBackupTarget(snapshot)
+	status, err := volClient.createBackup(pd.ProcessID, snapshot.UUID, target)
 	if err != nil {
 		return err
 	}
@@ -55,11 +73,11 @@ func (h *backupHandlers) Create(event *revents.Event, cli *client.RancherClient)
 	}
 
 	uri := strings.TrimSpace(status.Message)
-	backupUpdates := map[string]interface{}{"uri": uri}
-	eventDataWrapper := map[string]interface{}{"backup": backupUpdates}
+	backupUpdates := map[string]interface{}{"backupUri": uri}
+	eventDataWrapper := map[string]interface{}{"snapshot": backupUpdates}
 
 	reply := newReply(event)
-	reply.ResourceType = "backup"
+	reply.ResourceType = "snapshot"
 	reply.ResourceId = event.ResourceID
 	reply.Data = eventDataWrapper
 
@@ -71,35 +89,94 @@ func (h *backupHandlers) Create(event *revents.Event, cli *client.RancherClient)
 func (h *backupHandlers) Delete(event *revents.Event, cli *client.RancherClient) error {
 	logrus.Infof("Received event: Name: %s, Event Id: %s, Resource Id: %s", event.Name, event.ID, event.ResourceID)
 
-	backup, err := h.decodeEventBackup(event)
-	if err != nil {
+	snapshot := &eventSnapshot{}
+	if err := decodeEvent(event, "snapshot", snapshot); err != nil {
 		return err
 	}
 
-	volClient := newVolumeClient(&backup.Snapshot)
-
-	logrus.Infof("Removing backup %v", backup.UUID)
-	target := newBackupTarget(backup)
-	if _, err := volClient.removeBackup(backup.Snapshot.UUID, backup.UUID, backup.URI, target); err != nil {
-		return err
+	if err := removeBackup(snapshot); err != nil {
+		if err == backupDoesntExist {
+			logrus.Infof("Backup %v already removed.", snapshot.BackupURI)
+			return publishRemoveBackupReply(event, cli)
+		}
+		return errors.Wrapf(err, "Error removing backup %v for snapshot %v.", snapshot.BackupURI, event.ResourceID)
 	}
 
-	return reply("backup", event, cli)
+	return publishRemoveBackupReply(event, cli)
 }
 
-func (h *backupHandlers) decodeEventBackup(event *revents.Event) (*eventBackup, error) {
-	backup := &eventBackup{}
-	if s, ok := event.Data["backup"]; ok {
-		err := mapstructure.Decode(s, backup)
-		return backup, err
+func removeBackup(snapshot *eventSnapshot) error {
+	target := newBackupTarget(snapshot)
+	if err := createNFSMount(target); err != nil {
+		return errors.Wrapf(err, "Unable to create nfs mount for %v.", target)
 	}
-	return nil, fmt.Errorf("Event doesn't contain backup data. Event: %#v.", event)
+
+	logrus.Infof("Checking if backup %v exists.", snapshot.BackupURI)
+	if _, err := objectstore.GetBackupInfo(snapshot.BackupURI); err != nil {
+		if doesntExistRegex.MatchString(err.Error()) {
+			return backupDoesntExist
+		}
+		return errors.Wrapf(err, "Couldn't determine if error exists.")
+	}
+
+	logrus.Infof("Removing backup %v for snapshot %v", snapshot.BackupURI, snapshot.UUID)
+	if err := objectstore.DeleteDeltaBlockBackup(snapshot.BackupURI); err != nil {
+		return errors.Wrapf(err, "Error deleting backup.")
+	}
+
+	return nil
 }
 
-func newBackupTarget(backup *eventBackup) backupTarget {
+func publishRemoveBackupReply(event *revents.Event, cli *client.RancherClient) error {
+	reply := newReply(event)
+	reply.ResourceType = "snapshot"
+	reply.ResourceId = event.ResourceID
+	backupUpdates := map[string]interface{}{"backupUri": nil, "backupTargetId": nil}
+	eventDataWrapper := map[string]interface{}{"snapshot": backupUpdates}
+	reply.Data = eventDataWrapper
+
+	logrus.Infof("Reply: %+v", reply)
+	return publishReply(reply, cli)
+}
+
+func newBackupTarget(snapshot *eventSnapshot) backupTarget {
 	return backupTarget{
-		Name:      backup.BackupTarget.Name,
-		UUID:      backup.BackupTarget.UUID,
-		NFSConfig: backup.BackupTarget.Data.Fields.NFSConfig,
+		Name:      snapshot.BackupTarget.Name,
+		UUID:      snapshot.BackupTarget.UUID,
+		NFSConfig: snapshot.BackupTarget.Data.Fields.NFSConfig,
 	}
+}
+
+func createNFSMount(target backupTarget) error {
+	mountDir := constructMountDir(target)
+
+	grep := exec.Command("grep", mountDir, "/proc/mounts")
+	if err := grep.Run(); err == nil {
+		logrus.Infof("Found mount %v.", mountDir)
+		return nil
+	}
+
+	if err := os.MkdirAll(mountDir, 0770); err != nil {
+		return err
+	}
+
+	remoteTarget := fmt.Sprintf("%v:%v", target.NFSConfig.Server, target.NFSConfig.Share)
+	parentPid := strconv.Itoa(os.Getppid())
+
+	var mount *exec.Cmd
+	if target.NFSConfig.MountOptions == "" {
+		mount = exec.Command("nsenter", "-t", parentPid, "-n", "mount", "-t", "nfs", remoteTarget, mountDir)
+	} else {
+		mount = exec.Command("nsenter", "-t", parentPid, "-n", "mount", "-t", "nfs", "-o", target.NFSConfig.MountOptions, remoteTarget, mountDir)
+	}
+
+	mount.Stdout = os.Stdout
+	mount.Stderr = os.Stderr
+
+	logrus.Infof("Running %v", mount.Args)
+	return mount.Run()
+}
+
+func constructMountDir(target backupTarget) string {
+	return fmt.Sprintf("/var/lib/rancher/longhorn/backups/%s/%s", target.Name, target.UUID)
 }
