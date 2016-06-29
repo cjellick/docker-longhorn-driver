@@ -62,3 +62,18 @@ import:
 
 - package: github.com/mitchellh/mapstructure
   version: d2dd0262208475919e1a362f675cfc0e7c10e905
+
+- package: github.com/rancher/convoy
+  version: 91037ca9984804b7b1ac11d99b99dc1d49ffc67b
+
+- package: github.com/mcuadros/go-version
+  version: d52711f8d6bea8dc01efafdb68ad95a4e2606630
+
+- package: golang.org/x/sys/unix
+  version: 62bee037599929a6e9146f29d10dd5208c43507d
+
+- package: github.com/satori/go.uuid
+  version: f9ab0dce87d815821e221626b772e3475a0d2749
+
+- package: github.com/pkg/errors
+  version: a2d6902c6d2a2f194eb3fb474981ab7867c81505
