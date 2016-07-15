@@ -57,8 +57,8 @@ import:
 - package: github.com/rancher/kubernetes-agent/healthcheck
   version: v0.1.0
 
-- package: github.com/rancher/go-machine-service
-  version: v0.29.2
+- package: github.com/rancher/event-subscriber
+  version: 2e42f210dae2234d08786806100b4ddc4ce87641
 
 - package: github.com/mitchellh/mapstructure
   version: d2dd0262208475919e1a362f675cfc0e7c10e905
