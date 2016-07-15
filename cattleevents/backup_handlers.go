@@ -13,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rancher/convoy/objectstore"
 	"github.com/rancher/docker-longhorn-driver/util"
-	revents "github.com/rancher/go-machine-service/events"
+	revents "github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/client"
 )
 

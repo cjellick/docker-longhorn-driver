@@ -6,7 +6,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/mitchellh/mapstructure"
 
-	revents "github.com/rancher/go-machine-service/events"
+	revents "github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/client"
 )
 
@@ -37,7 +37,8 @@ func ConnectToEventStream(conf Config) error {
 		"ping": ph.Handler,
 	}
 
-	router, err := revents.NewEventRouter("", 0, conf.CattleURL, conf.CattleAccessKey, conf.CattleSecretKey, nil, eventHandlers, "", conf.WorkerCount)
+	router, err := revents.NewEventRouter("", 0, conf.CattleURL, conf.CattleAccessKey, conf.CattleSecretKey,
+		nil, eventHandlers, "", conf.WorkerCount, revents.DefaultPingConfig)
 	if err != nil {
 		return err
 	}

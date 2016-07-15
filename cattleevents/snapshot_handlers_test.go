@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	revents "github.com/rancher/go-machine-service/events"
+	revents "github.com/rancher/event-subscriber/events"
 )
 
 var snapshotEvent = `{"name":"asdf",
